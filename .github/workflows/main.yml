@@ -2,39 +2,56 @@ name: Run Movie Bot Randomly (1–2hr gaps, all day)
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Runs every 15 minutes (GitHub Actions limit)
+    - cron: '*/15 * * * *'  # Runs every 15 minutes (max GitHub allows)
 
 jobs:
   ping-movie-bot:
     runs-on: ubuntu-latest
-    steps:
-      - name: Random API Call with 1–2hr Gap Simulation
-        run: |
-          echo "🎰 Simulating 1–2 hour randomness..."
 
-          # ~75% chance to skip this run
+    steps:
+      - name: 🧠 Simulate 1–2hr Gaps with Random Chance
+        run: |
+          set -euo pipefail
+
+          echo "🕒 Current Time: $(date)"
+          echo "🎰 Simulating random execution (approx 1 in 4 chance)..."
+
+          # 75% chance to skip this run
           CHANCE=$(( RANDOM % 4 ))
           if [ "$CHANCE" -ne 0 ]; then
-            echo "🎲 Skipping this run for randomness. Try again in 15 mins."
+            echo "🎲 Skipping this run (CHANCE=$CHANCE). Will retry in 15 mins."
             exit 0
           fi
 
-          # Random delay between 15 to 45 minutes
+          # Random delay: 15 to 45 minutes (900 to 2700 seconds)
           DELAY=$(( 900 + RANDOM % 1800 ))
           echo "⏱ Sleeping for $DELAY seconds (~$((DELAY / 60)) minutes)..."
-          sleep $DELAY
+          sleep "$DELAY"
 
-          echo "🚀 Calling the movie bot API..."
+          echo "🚀 Hitting the movie bot API..."
+          
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "📡 Attempt $i..."
+            RESPONSE=$(curl -s -w "\nStatus: %{http_code}" "https://movie-x.rithb8981.workers.dev/run-bot")
 
-          RESPONSE=$(curl -s -w "\nStatus: %{http_code}" "https://movie-x.rithb8981.workers.dev/run-bot")
+            echo "📦 Full Response:"
+            echo "$RESPONSE"
 
-          echo "📦 Full Response:"
-          echo "$RESPONSE"
+            STATUS_CODE=$(echo "$RESPONSE" | grep "Status:" | awk '{print $2}')
 
-          STATUS_CODE=$(echo "$RESPONSE" | grep "Status:" | awk '{print $2}')
-          if [ "$STATUS_CODE" -ne 200 ]; then
-            echo "❌ API call failed with status $STATUS_CODE"
-            exit 1
-          else
-            echo "✅ API call succeeded with status $STATUS_CODE"
-          fi
+            if [ "$STATUS_CODE" -eq 200 ]; then
+              echo "✅ API call succeeded with status $STATUS_CODE on attempt $i"
+              break
+            else
+              echo "❌ API call failed with status $STATUS_CODE on attempt $i"
+              if [ "$i" -lt "$MAX_RETRIES" ]; then
+                BACKOFF=$(( i * 10 ))
+                echo "🔁 Retrying in $BACKOFF seconds..."
+                sleep "$BACKOFF"
+              else
+                echo "💥 Failed after $MAX_RETRIES attempts."
+                exit 1
+              fi
+            fi
+          done
